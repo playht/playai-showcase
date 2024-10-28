@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PlayAI WebSocket API Demo</title>
+    <style>
+      /* Styles for the demo interface */
+      #status {
+        white-space: pre-wrap;
+        background-color: #f4f4f4;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        padding: 10px;
+        overflow-x: auto;
+        height: 200px;
+        overflow-y: scroll;
+      }
+      .status-box {
+        display: inline-block;
+        padding: 5px 10px;
+        border-radius: 3px;
+        font-weight: bold;
+        margin-right: 10px;
+      }
+      .closed {
+        background-color: #ffcccc;
+        color: #cc0000;
+      }
+      .open {
+        background-color: #ccffcc;
+        color: #006600;
+      }
+      #countdownBox {
+        background-color: #e6e6e6;
+        color: #333;
+        width: 300px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+    This demo showcases our WebSocket-based audio streaming API for text-to-speech applications.
+    It demonstrates how to establish a direct connection from a browser to the WebSocket server,
+    send text-to-speech requests, and stream audio in real-time.
+
+    Key Features:
+    - WebSocket connection management
+    - Text-to-speech request submission with custom voice selection
+    - Real-time audio streaming and playback
+    - Connection status monitoring with auto-close countdown
+
+    This example is designed to help developers integrate WebSocket-based audio streaming
+    into their web applications, providing a demonstration of the API usage and real-time audio data.
+-->
+
+    <h1>PlayAI WebSocket API Demo</h1>
+
+    <!-- Voice selection input -->
+    <label for="voiceInput">Voice:</label><br />
+    <input
+      type="text"
+      id="voiceInput"
+      value="s3://voice-cloning-zero-shot/775ae416-49bb-4fb6-bd45-740f205d20a1/jennifersaad/manifest.json"
+      size="80"
+    /><br /><br />
+
+    <!-- Text input for speech synthesis -->
+    <label for="inputText">Text:</label><br />
+    <textarea id="inputText" rows="4" cols="75">Enter some text here and click 'Connect and play'</textarea><br />
+
+    <!-- Controls and status indicators -->
+    <button id="connectBtn">Connect and Play</button>
+    <span id="connectionStatus" class="status-box closed">CLOSED</span>
+    <span id="countdownBox" class="status-box">-</span>
+    <br /><br />
+
+    <!-- Audio player for streaming playback -->
+    <audio id="audioPlayer" controls></audio>
+
+    <!-- Log display for status updates and debugging -->
+    <pre id="status"></pre>
+
+    <script>
+      // DOM elements
+      const connectBtn = document.getElementById('connectBtn');
+      const audioPlayer = document.getElementById('audioPlayer');
+      const statusPre = document.getElementById('status');
+      const inputText = document.getElementById('inputText');
+      const voiceInput = document.getElementById('voiceInput');
+      const connectionStatus = document.getElementById('connectionStatus');
+      const countdownBox = document.getElementById('countdownBox');
+
+      // Global state
+      let sourceBuffer = []; // Stores incoming audio data chunks
+      let currentRequestId = ''; // Tracks the current request being processed
+      let socket; // WebSocket connection
+      let isWaitingForEOF = false; // Indicates if we're waiting for the end of the audio stream
+      let countdownInterval; // Interval for the auto-close countdown
+      let countdown = 10; // Countdown value in seconds
+
+      // Set up event listeners
+      connectBtn.addEventListener('click', handleConnectAndPlay);
+
+      // Adds a message to the status log
+      function updateStatus(message) {
+        statusPre.textContent += message + '\n\n';
+        statusPre.scrollTop = statusPre.scrollHeight;
+        console.log(message);
+      }
+
+      // Updates the visual indicator of the WebSocket connection status
+      function updateConnectionStatus(isOpen) {
+        connectionStatus.textContent = isOpen ? 'OPEN' : 'CLOSED';
+        connectionStatus.className = isOpen ? 'status-box open' : 'status-box closed';
+        if (!isOpen) {
+          countdownBox.textContent = '-';
+          stopCountdown();
+        } else {
+          startCountdown();
+        }
+      }
+
+      // Creates a random hex string for unique request IDs
+      function generateRandomHex(length) {
+        return Array.from({ length }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+      }
+
+      // Manages the "Connect and Play" button behavior
+      function handleConnectAndPlay() {
+        if (!socket || socket.readyState === WebSocket.CLOSED) {
+          connectAndPlay();
+        } else if (socket.readyState === WebSocket.OPEN) {
+          sendCommand();
+        }
+      }
+
+      // Establishes a WebSocket connection and initiates audio playback
+      function connectAndPlay() {
+        const wss_url = '<%= WEBSOCKET_URL %>'; // Replace with your actual WebSocket server URL
+        updateStatus(`Connecting to ${wss_url}...`);
+
+        socket = new WebSocket(wss_url);
+
+        socket.onopen = function (event) {
+          updateStatus('WebSocket connection opened');
+          updateConnectionStatus(true);
+          sendCommand();
+        };
+
+        socket.onmessage = handleMessage;
+
+        socket.onerror = function (error) {
+          updateStatus(`WebSocket error: ${error.message}`);
+        };
+
+        socket.onclose = function (event) {
+          updateStatus(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
+          updateConnectionStatus(false);
+          updateStatus('The connection has been closed. Click "Connect and Play" to try again.');
+          connectBtn.disabled = false;
+        };
+      }
+
+      // Sends a text-to-speech command to the server
+      function sendCommand() {
+        clearAudioBuffer();
+        currentRequestId = generateRandomHex(16);
+        const command = {
+          text: inputText.value,
+          voice: voiceInput.value,
+          request_id: currentRequestId,
+        };
+        socket.send(JSON.stringify(command));
+        updateStatus(`Sent command: ${JSON.stringify(command)}`);
+        connectBtn.disabled = true;
+        isWaitingForEOF = true;
+        resetCountdown();
+      }
+
+      // Resets the audio buffer and player for a new request
+      function clearAudioBuffer() {
+        sourceBuffer = [];
+        if (audioPlayer.src) {
+          audioPlayer.pause();
+          audioPlayer.currentTime = 0;
+          audioPlayer.src = '';
+          URL.revokeObjectURL(audioPlayer.src);
+        }
+      }
+
+      // Processes incoming WebSocket messages
+      function handleMessage(event) {
+        resetCountdown();
+        if (typeof event.data === 'string') {
+          updateStatus(`Received string data: ${event.data}`);
+          try {
+            const message = JSON.parse(event.data);
+            if (message.request_id === currentRequestId) {
+              updateStatus('Received EOF signal, attempting to play audio');
+              isWaitingForEOF = false;
+              connectBtn.disabled = false;
+              playAudio();
+            }
+          } catch (error) {
+            updateStatus(`Error parsing JSON: ${error.message}`);
+          }
+        } else {
+          // Binary data - assume it's an audio chunk
+          updateStatus(`Received binary data of size: ${event.data.size} bytes`);
+          sourceBuffer.push(event.data);
+        }
+      }
+
+      // Plays the received audio data
+      function playAudio() {
+        updateStatus(`Attempting to play audio. Buffer size: ${sourceBuffer.length}`);
+        if (sourceBuffer.length === 0) {
+          updateStatus('Error: No audio data received');
+          return;
+        }
+
+        const blob = new Blob(sourceBuffer, { type: 'audio/mpeg' });
+        const audioUrl = URL.createObjectURL(blob);
+        audioPlayer.src = audioUrl;
+
+        audioPlayer.oncanplay = () => {
+          updateStatus('Audio can be played');
+          audioPlayer
+            .play()
+            .then(() => {
+              updateStatus('Audio playback started');
+            })
+            .catch((error) => {
+              updateStatus(`Error starting playback: ${error.message}`);
+            });
+        };
+
+        audioPlayer.onerror = (error) => {
+          updateStatus(`Audio error: ${audioPlayer.error.code} - ${audioPlayer.error.message}`);
+        };
+      }
+
+      // Initiates the connection auto-close countdown
+      function startCountdown() {
+        stopCountdown(); // Ensure any existing countdown is cleared
+        countdown = 10;
+        updateCountdownDisplay();
+        countdownInterval = setInterval(() => {
+          countdown--;
+          updateCountdownDisplay();
+          if (countdown <= 0) {
+            stopCountdown();
+          }
+        }, 1000);
+      }
+
+      // Halts the connection auto-close countdown
+      function stopCountdown() {
+        clearInterval(countdownInterval);
+      }
+
+      // Resets the connection auto-close countdown
+      function resetCountdown() {
+        countdown = 10;
+        updateCountdownDisplay();
+        startCountdown();
+      }
+
+      // Updates the countdown display
+      function updateCountdownDisplay() {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          countdownBox.textContent = `Connection will auto-close in ${countdown} seconds`;
+        } else {
+          countdownBox.textContent = '-';
+        }
+      }
+
+      // Set initial connection status
+      updateConnectionStatus(false);
+    </script>
+  </body>
+</html>
