@@ -16,9 +16,11 @@ if (process.env.USER_ID === undefined || process.env.API_KEY === undefined|| pro
   console.log('MODEL =', process.env.MODEL);
 }
 
+type WebSocketAuthResponseSchema = { webSocketUrls: Record<string, string>, expiresAt: string };
+
 async function getAuthenticatedWebSocketUrl() {
   try {
-    const url = 'https://api.play.ai/api/v1/tts/auth';
+    const url = 'https://api.play.ai/api/v1/tts/websocket-auth';
     const headers = {
       Authorization: 'Bearer ' + process.env.API_KEY,
       'X-User-Id': process.env.USER_ID!,
@@ -33,7 +35,7 @@ async function getAuthenticatedWebSocketUrl() {
       );
     }
 
-    return (await response.json()) as Record<string, { webSocketUrl: string; }> & { expiresAt: string };
+    return (await response.json()) as WebSocketAuthResponseSchema;
   } catch (e) {
     console.error(`Error while obtaining authenticated websocket URL: ${e}`, e);
     throw e;
@@ -45,9 +47,14 @@ const app = express();
 app.all('*', async (_, res) => {
   try {
     const result = await getAuthenticatedWebSocketUrl();
+    const webSocketUrl = result.webSocketUrls[process.env.MODEL!];
+    if (!webSocketUrl) {
+      res.status(400).send(`Websocket URL for model ${process.env.MODEL} not found in response: ${JSON.stringify(result)}`);
+      return;
+    }
     const pageContent = fs
       .readFileSync(`${import.meta.dirname}/websocket.html`, 'utf8')
-      .replaceAll('<%= WEBSOCKET_URL %>', result[process.env.MODEL!].webSocketUrl);
+      .replaceAll('<%= WEBSOCKET_URL %>', webSocketUrl);
     res.status(200).send(pageContent);
   } catch (e) {
     console.error(`Error serving HTML page: ${e}`, e);

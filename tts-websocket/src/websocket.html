@@ -143,7 +143,7 @@
 
         socket = new WebSocket(wss_url);
 
-        socket.onopen = function (event) {
+        socket.onopen = function () {
           updateStatus('WebSocket connection opened');
           updateConnectionStatus(true);
           sendCommand();
@@ -185,8 +185,9 @@
         if (audioPlayer.src) {
           audioPlayer.pause();
           audioPlayer.currentTime = 0;
-          audioPlayer.src = '';
           URL.revokeObjectURL(audioPlayer.src);
+          audioPlayer.removeAttribute('src');
+          audioPlayer.load(); // clear any loaded media
         }
       }
 
@@ -197,8 +198,8 @@
           updateStatus(`Received string data: ${event.data}`);
           try {
             const message = JSON.parse(event.data);
-            if (message.request_id === currentRequestId) {
-              updateStatus('Received EOF signal, attempting to play audio');
+            if (message.type === "end") {
+              updateStatus('Received "END" message, attempting to play audio');
               isWaitingForEOF = false;
               connectBtn.disabled = false;
               playAudio();
@@ -237,7 +238,7 @@
             });
         };
 
-        audioPlayer.onerror = (error) => {
+        audioPlayer.onerror = () => {
           updateStatus(`Audio error: ${audioPlayer.error.code} - ${audioPlayer.error.message}`);
         };
       }
@@ -270,11 +271,7 @@
 
       // Updates the countdown display
       function updateCountdownDisplay() {
-        if (socket && socket.readyState === WebSocket.OPEN) {
-          countdownBox.textContent = `Connection will auto-close in ${countdown} seconds`;
-        } else {
-          countdownBox.textContent = '-';
-        }
+        countdownBox.textContent = '-';
       }
 
       // Set initial connection status
