@@ -54,6 +54,7 @@ app.all('*', async (_, res) => {
     }
     const pageContent = fs
       .readFileSync(`${import.meta.dirname}/websocket.html`, 'utf8')
+      .replaceAll('<%= SELECTED_MODEL %>', process.env.MODEL!)
       .replaceAll('<%= WEBSOCKET_URL %>', webSocketUrl);
     res.status(200).send(pageContent);
   } catch (e) {

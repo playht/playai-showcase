@@ -31,12 +31,6 @@
         background-color: #ccffcc;
         color: #006600;
       }
-      #countdownBox {
-        background-color: #e6e6e6;
-        color: #333;
-        width: 300px;
-        text-align: center;
-      }
     </style>
   </head>
   <body>
@@ -49,13 +43,14 @@
     - WebSocket connection management
     - Text-to-speech request submission with custom voice selection
     - Real-time audio streaming and playback
-    - Connection status monitoring with auto-close countdown
 
     This example is designed to help developers integrate WebSocket-based audio streaming
     into their web applications, providing a demonstration of the API usage and real-time audio data.
 -->
 
     <h1>PlayAI WebSocket API Demo</h1>
+
+    Selected Model: <strong><%= SELECTED_MODEL %></strong> (chech the <code>.env</code> file)<br /><br />
 
     <!-- Voice selection input -->
     <label for="voiceInput">Voice:</label><br />
@@ -73,7 +68,6 @@
     <!-- Controls and status indicators -->
     <button id="connectBtn">Connect and Play</button>
     <span id="connectionStatus" class="status-box closed">CLOSED</span>
-    <span id="countdownBox" class="status-box">-</span>
     <br /><br />
 
     <!-- Audio player for streaming playback -->
@@ -90,15 +84,11 @@
       const inputText = document.getElementById('inputText');
       const voiceInput = document.getElementById('voiceInput');
       const connectionStatus = document.getElementById('connectionStatus');
-      const countdownBox = document.getElementById('countdownBox');
 
       // Global state
       let sourceBuffer = []; // Stores incoming audio data chunks
-      let currentRequestId = ''; // Tracks the current request being processed
       let socket; // WebSocket connection
       let isWaitingForEOF = false; // Indicates if we're waiting for the end of the audio stream
-      let countdownInterval; // Interval for the auto-close countdown
-      let countdown = 10; // Countdown value in seconds
 
       // Set up event listeners
       connectBtn.addEventListener('click', handleConnectAndPlay);
@@ -114,17 +104,6 @@
       function updateConnectionStatus(isOpen) {
         connectionStatus.textContent = isOpen ? 'OPEN' : 'CLOSED';
         connectionStatus.className = isOpen ? 'status-box open' : 'status-box closed';
-        if (!isOpen) {
-          countdownBox.textContent = '-';
-          stopCountdown();
-        } else {
-          startCountdown();
-        }
-      }
-
-      // Creates a random hex string for unique request IDs
-      function generateRandomHex(length) {
-        return Array.from({ length }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       }
 
       // Manages the "Connect and Play" button behavior
@@ -166,17 +145,14 @@
       // Sends a text-to-speech command to the server
       function sendCommand() {
         clearAudioBuffer();
-        currentRequestId = generateRandomHex(16);
         const command = {
           text: inputText.value,
           voice: voiceInput.value,
-          request_id: currentRequestId,
         };
         socket.send(JSON.stringify(command));
         updateStatus(`Sent command: ${JSON.stringify(command)}`);
         connectBtn.disabled = true;
         isWaitingForEOF = true;
-        resetCountdown();
       }
 
       // Resets the audio buffer and player for a new request
@@ -193,7 +169,6 @@
 
       // Processes incoming WebSocket messages
       function handleMessage(event) {
-        resetCountdown();
         if (typeof event.data === 'string') {
           updateStatus(`Received string data: ${event.data}`);
           try {
@@ -241,37 +216,6 @@
         audioPlayer.onerror = () => {
           updateStatus(`Audio error: ${audioPlayer.error.code} - ${audioPlayer.error.message}`);
         };
-      }
-
-      // Initiates the connection auto-close countdown
-      function startCountdown() {
-        stopCountdown(); // Ensure any existing countdown is cleared
-        countdown = 10;
-        updateCountdownDisplay();
-        countdownInterval = setInterval(() => {
-          countdown--;
-          updateCountdownDisplay();
-          if (countdown <= 0) {
-            stopCountdown();
-          }
-        }, 1000);
-      }
-
-      // Halts the connection auto-close countdown
-      function stopCountdown() {
-        clearInterval(countdownInterval);
-      }
-
-      // Resets the connection auto-close countdown
-      function resetCountdown() {
-        countdown = 10;
-        updateCountdownDisplay();
-        startCountdown();
-      }
-
-      // Updates the countdown display
-      function updateCountdownDisplay() {
-        countdownBox.textContent = '-';
       }
 
       // Set initial connection status
