@@ -173,7 +173,7 @@
           updateStatus(`Received string data: ${event.data}`);
           try {
             const message = JSON.parse(event.data);
-            if (message.type === "end") {
+            if (message.type === 'end') {
               updateStatus('Received "END" message, attempting to play audio');
               isWaitingForEOF = false;
               connectBtn.disabled = false;
